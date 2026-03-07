@@ -1,0 +1,60 @@
+\documentclass[11pt]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{enumitem}
+
+\setlength{\parskip}{6pt}
+\setlength{\parindent}{0pt}
+
+\begin{document}
+
+\noindent
+{\Large \textbf{High-Performance Parallel Pathfinding on Large-Scale Grids Using OpenMP and MPI}}
+
+\vspace{4pt}
+\hrule
+\vspace{10pt}
+
+\textbf{1. Introduction}
+
+Pathfinding is a fundamental problem in computer science used in applications such as robotics, navigation systems, video games, and logistics optimization. As grid sizes scale to millions of nodes, sequential pathfinding algorithms become inefficient due to high computational demands and increased execution time. This project proposes a high-performance parallel pathfinding system that leverages shared-memory and distributed-memory techniques to improve scalability and significantly reduce processing time.
+
+\textbf{2. Objectives}
+
+\begin{itemize}[noitemsep]
+    \item Design and implement a large-scale grid-based pathfinding system.
+    \item Develop a serial baseline for performance comparison.
+    \item Implement shared-memory parallelism using OpenMP.
+    \item Implement distributed-memory parallelism using MPI.
+    \item Develop a hybrid MPI + OpenMP model.
+    \item Evaluate performance improvements in terms of speedup, efficiency, and scalability.
+\end{itemize}
+
+\textbf{3. Methodology}
+
+Large-scale grid environments with configurable obstacle densities will be generated to model real-world navigation scenarios. The A* algorithm will be implemented to determine the shortest path between nodes, beginning with a serial version to establish a performance baseline. OpenMP will be used to parallelize node exploration across CPU threads, while MPI will distribute the grid among multiple processes for distributed execution. A hybrid MPI + OpenMP model will then be developed to enhance resource utilization. Performance will be evaluated by varying grid sizes, thread counts, and process configurations.
+
+\textbf{4. Evaluation Metrics}
+
+\begin{itemize}[noitemsep]
+    \item Execution Time
+    \item Speedup
+    \item Parallel Efficiency
+    \item Scalability (Strong and Weak Scaling)
+    \item Resource Utilization (CPU usage and memory consumption)
+\end{itemize}
+
+\textbf{5. Tools and Technologies}
+
+\begin{itemize}[noitemsep]
+    \item Programming Language: C/C++
+    \item Parallel Frameworks: OpenMP, MPI
+    \item Optional GPU Acceleration: CUDA
+    \item Development Environment: Linux (Ubuntu)
+\end{itemize}
+
+\textbf{6. Expected Outcomes}
+
+The project is expected to demonstrate that parallel pathfinding significantly outperforms serial implementations for large-scale environments. The hybrid approach is anticipated to provide the best performance by effectively utilizing both shared and distributed memory architectures while offering valuable insights into scalable parallel algorithm design.
+
+\end{document}
