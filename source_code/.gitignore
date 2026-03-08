@@ -1,0 +1,23 @@
+# Compiled object files
+*.o
+*.a
+
+# Executables
+serial/astar_serial
+openmp/astar_openmp
+mpi/astar_mpi
+hybrid/astar_hybrid
+
+# Results/output files
+results/performance_logs.txt
+results/serial_path.txt
+results/*.txt
+
+# Editor/IDE files
+.vscode/
+*.swp
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
