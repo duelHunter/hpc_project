@@ -1,112 +1,104 @@
 #include <iostream>
 #include <vector>
 #include <queue>
+#include <tuple>
 #include <algorithm>
-#include "../common/node.h"
+#include <climits>
 #include "../common/grid.h"
 #include "../common/utils.h"
 
 using namespace std;
 
 class AStarSerial {
-private:
     Grid& grid;
-    int startX, startY, goalX, goalY;
-
-    struct CompareNode {
-        bool operator()(const Node* a, const Node* b) const { return a->f > b->f; }
-    };
-
+    int sx, sy, gx, gy, H, W;
+    inline int h(int x, int y) const { return abs(x-gx)+abs(y-gy); }
 public:
-    AStarSerial(Grid& g, int sx, int sy, int gx, int gy)
-        : grid(g), startX(sx), startY(sy), goalX(gx), goalY(gy) {}
+    AStarSerial(Grid& g,int sx,int sy,int gx,int gy)
+        :grid(g),sx(sx),sy(sy),gx(gx),gy(gy),H(g.getHeight()),W(g.getWidth()){}
 
-    vector<pair<int,int>> findPath() {
-        priority_queue<Node*, vector<Node*>, CompareNode> openList;
-        vector<vector<bool>> closed(grid.getHeight(), vector<bool>(grid.getWidth(), false));
-        vector<Node*> allNodes;
+    vector<pair<int,int>> findPath(){
+        vector<int> gScore(H*W, INT_MAX);
+        vector<int> parent(H*W, -1);
+        vector<bool> closed(H*W, false);
 
-        Node* startNode = new Node(startX, startY, 0,
-                                   manhattanDistance(startX, startY, goalX, goalY));
-        allNodes.push_back(startNode);
-        openList.push(startNode);
+        using PQ = pair<int,int>;
+        priority_queue<PQ,vector<PQ>,greater<PQ>> openList;
 
-        Node* goalNode = nullptr;
+        int startIdx = sx*W+sy;
+        gScore[startIdx] = 0;
+        parent[startIdx] = -2;
+        openList.push({h(sx,sy), startIdx});
+
         int expanded = 0;
+        bool found = false;
 
-        while (!openList.empty()) {
-            Node* cur = openList.top(); openList.pop();
-            if (closed[cur->x][cur->y]) continue;
-            closed[cur->x][cur->y] = true;
+        while(!openList.empty()){
+            auto [f, idx] = openList.top(); openList.pop();
+            if(closed[idx]) continue;
+            closed[idx] = true;
             ++expanded;
-
-            if (cur->x == goalX && cur->y == goalY) { goalNode = cur; break; }
-
-            for (int i = 0; i < NUM_DIRECTIONS; ++i) {
-                int nx = cur->x + DX[i], ny = cur->y + DY[i];
-                if (!grid.isValid(nx, ny) || closed[nx][ny]) continue;
-                int ng = cur->g + 1;
-                int nh = manhattanDistance(nx, ny, goalX, goalY);
-                Node* nb = new Node(nx, ny, ng, nh, cur);
-                allNodes.push_back(nb);
-                openList.push(nb);
+            int cx=idx/W, cy=idx%W;
+            if(cx==gx && cy==gy){ found=true; break; }
+            int cg = gScore[idx];
+            for(int i=0;i<NUM_DIRECTIONS;++i){
+                int nx=cx+DX[i], ny=cy+DY[i];
+                if(!grid.isValid(nx,ny)) continue;
+                int nIdx=nx*W+ny;
+                if(closed[nIdx]) continue;
+                int ng=cg+1;
+                if(ng < gScore[nIdx]){
+                    gScore[nIdx]=ng;
+                    parent[nIdx]=idx;
+                    openList.push({ng+h(nx,ny), nIdx});
+                }
             }
         }
-
-        vector<pair<int,int>> path;
-        if (goalNode) {
-            for (Node* c = goalNode; c; c = c->parent)
-                path.push_back({c->x, c->y});
-            reverse(path.begin(), path.end());
-        }
-        for (Node* n : allNodes) delete n;
         cout << "Nodes expanded: " << expanded << endl;
+        vector<pair<int,int>> path;
+        if(found){
+            int idx=gx*W+gy;
+            while(idx!=-2){ path.push_back({idx/W,idx%W}); idx=parent[idx]; }
+            reverse(path.begin(),path.end());
+        }
         return path;
     }
 };
 
-int main(int argc, char* argv[]) {
-    int W = 1000, H = 1000;
-    double density = 0.3;
-    unsigned int seed = 42;
+int main(int argc, char* argv[]){
+    int W=1000,H=1000; double density=0.3; unsigned int seed=42;
+    if(argc>=3){W=atoi(argv[1]);H=atoi(argv[2]);}
+    if(argc>=4) density=atof(argv[3]);
+    if(argc>=5) seed=atoi(argv[4]);
 
-    if (argc >= 3) { W = atoi(argv[1]); H = atoi(argv[2]); }
-    if (argc >= 4) density = atof(argv[3]);
-    if (argc >= 5) seed = atoi(argv[4]);
+    cout<<"========================================"<<endl;
+    cout<<"Serial A* Pathfinding"<<endl;
+    cout<<"Grid size: "<<W<<"x"<<H<<endl;
+    cout<<"Obstacle density: "<<(density*100)<<"%"<<endl;
+    cout<<"========================================"<<endl;
 
-    cout << "========================================" << endl;
-    cout << "Serial A* Pathfinding" << endl;
-    cout << "Grid size: " << W << "x" << H << endl;
-    cout << "Obstacle density: " << (density * 100) << "%" << endl;
-    cout << "========================================" << endl;
+    Grid grid(W,H);
+    grid.generateObstacles(density,seed);
+    int startX=0,startY=0,goalX=H-1,goalY=W-1;
+    grid.clearCell(startX,startY);
+    grid.clearCell(goalX,goalY);
+    cout<<"Start: ("<<startX<<","<<startY<<") | Goal: ("<<goalX<<","<<goalY<<")"<<endl;
 
-    Grid grid(W, H);
-    grid.generateObstacles(density, seed);
+    AStarSerial astar(grid,startX,startY,goalX,goalY);
+    Timer timer; timer.start();
+    auto path=astar.findPath();
+    double t=timer.stop();
 
-    int sx = 0, sy = 0, gx = H - 1, gy = W - 1;
-    grid.clearCell(sx, sy);
-    grid.clearCell(gx, gy);
-    cout << "Start: (" << sx << "," << sy << ") | Goal: (" << gx << "," << gy << ")" << endl;
-
-    AStarSerial astar(grid, sx, sy, gx, gy);
-    Timer timer;
-    timer.start();
-    auto path = astar.findPath();
-    double t = timer.stop();
-
-    cout << "========================================" << endl;
-    if (path.empty()) cout << "No path found!" << endl;
-    else {
-        cout << "Path found! Length: " << path.size() << " steps" << endl;
+    cout<<"========================================"<<endl;
+    if(path.empty()) cout<<"No path found!"<<endl;
+    else{
+        cout<<"Path found! Length: "<<path.size()<<" steps"<<endl;
         printPath(path);
     }
-    cout << "Execution time: " << t << " ms" << endl;
-    cout << "========================================" << endl;
-
-    saveResults("../results/performance_logs.txt", "serial", W, H, 1, 1, t, path.size());
-
-    if (W <= 100 && H <= 100)
-        exportGridWithPath("../results/serial_path.txt", grid.getData(), path, sx, sy, gx, gy);
-
+    cout<<"Execution time: "<<t<<" ms"<<endl;
+    cout<<"========================================"<<endl;
+    saveResults("../results/performance_logs.txt","serial",W,H,1,1,t,path.size());
+    if(W<=100&&H<=100)
+        exportGridWithPath("../results/serial_path.txt",grid.getData(),path,startX,startY,goalX,goalY);
     return 0;
 }
