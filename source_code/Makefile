@@ -4,7 +4,7 @@ OMPFLAGS = -fopenmp
 MPICXX = mpic++
 COMMON_OBJ = common/grid.o
 
-all: serial_astar
+all: serial_astar serial_jps openmp_jps
 
 common/grid.o: common/grid.cpp common/grid.h
 	$(CXX) $(CXXFLAGS) -c $< -o $@
@@ -12,8 +12,14 @@ common/grid.o: common/grid.cpp common/grid.h
 serial_astar: serial/astar_serial.cpp $(COMMON_OBJ)
 	$(CXX) $(CXXFLAGS) $^ -o serial/astar_serial
 
+serial_jps: serial/jps_serial.cpp $(COMMON_OBJ)
+	$(CXX) $(CXXFLAGS) $^ -o serial/jps_serial
+
 openmp_astar: openmp/astar_openmp.cpp $(COMMON_OBJ)
 	$(CXX) $(CXXFLAGS) $(OMPFLAGS) $^ -o openmp/astar_openmp
+
+openmp_jps: openmp/jps_openmp.cpp $(COMMON_OBJ)
+	$(CXX) $(CXXFLAGS) $(OMPFLAGS) $^ -o openmp/jps_openmp
 
 mpi_astar: mpi/astar_mpi.cpp $(COMMON_OBJ)
 	$(MPICXX) $(CXXFLAGS) $^ -o mpi/astar_mpi
@@ -22,6 +28,6 @@ hybrid_astar: hybrid/astar_hybrid.cpp $(COMMON_OBJ)
 	$(MPICXX) $(CXXFLAGS) $(OMPFLAGS) $^ -o hybrid/astar_hybrid
 
 clean:
-	rm -f common/grid.o serial/astar_serial openmp/astar_openmp mpi/astar_mpi hybrid/astar_hybrid
+	rm -f common/grid.o serial/astar_serial serial/jps_serial openmp/astar_openmp mpi/astar_mpi hybrid/astar_hybrid
 
 .PHONY: all clean
