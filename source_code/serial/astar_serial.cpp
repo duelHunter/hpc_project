@@ -97,8 +97,8 @@ int main(int argc, char* argv[]){
     }
     cout<<"Execution time: "<<t<<" ms"<<endl;
     cout<<"========================================"<<endl;
-    saveResults("../results/performance_logs.txt","serial",W,H,1,1,t,path.size());
+    saveResults("results/performance_logs.txt","serial",W,H,1,1,t,path.size());
     if(W<=100&&H<=100)
-        exportGridWithPath("../results/serial_path.txt",grid.getData(),path,startX,startY,goalX,goalY);
+        exportGridWithPath("results/serial_path.txt",grid.getData(),path,startX,startY,goalX,goalY);
     return 0;
 }
