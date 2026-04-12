@@ -17,6 +17,7 @@ public:
     AStarSerial(Grid& g,int sx,int sy,int gx,int gy)
         :grid(g),sx(sx),sy(sy),gx(gx),gy(gy),H(g.getHeight()),W(g.getWidth()){}
 
+    //////////////////////// Main A* pathfinding function
     vector<pair<int,int>> findPath(){
         vector<int> gScore(H*W, INT_MAX);
         vector<int> parent(H*W, -1);
@@ -41,6 +42,7 @@ public:
             int cx=idx/W, cy=idx%W;
             if(cx==gx && cy==gy){ found=true; break; }
             int cg = gScore[idx];
+            #pragma omp parallel for schedule(dynamic,1)
             for(int i=0;i<NUM_DIRECTIONS;++i){
                 int nx=cx+DX[i], ny=cy+DY[i];
                 if(!grid.isValid(nx,ny)) continue;
@@ -98,9 +100,9 @@ int main(int argc, char* argv[]){
     cout<<"Execution time: "<<t<<" ms"<<endl;
     cout<<"========================================"<<endl;
     saveResults("results/performance_logs.txt","serial",W,H,1,1,t,path.size());
-    if(W<=10000&&H<=10000){
-        exportGridWithPath("results/serial_path.txt",grid.getData(),path,startX,startY,goalX,goalY);
-        exportGridWithPathSVG("results/serial_path.svg",grid.getData(),path,startX,startY,goalX,goalY);
-    }
+    // if(W<=10000&&H<=10000){
+    //     exportGridWithPath("results/serial_path.txt",grid.getData(),path,startX,startY,goalX,goalY);
+    //     exportGridWithPathSVG("results/serial_path.svg",grid.getData(),path,startX,startY,goalX,goalY);
+    // }
     return 0;
 }
