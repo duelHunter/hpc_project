@@ -66,7 +66,7 @@ public:
 };
 
 int main(int argc, char* argv[]){
-    int W=1000,H=1000; double density=0.3; unsigned int seed=42;
+    int W=10000,H=10000; double density=0.2; unsigned int seed=42;
     if(argc>=3){W=atoi(argv[1]);H=atoi(argv[2]);}
     if(argc>=4) density=atof(argv[3]);
     if(argc>=5) seed=atoi(argv[4]);
@@ -98,7 +98,9 @@ int main(int argc, char* argv[]){
     cout<<"Execution time: "<<t<<" ms"<<endl;
     cout<<"========================================"<<endl;
     saveResults("results/performance_logs.txt","serial",W,H,1,1,t,path.size());
-    if(W<=100&&H<=100)
+    if(W<=10000&&H<=10000){
         exportGridWithPath("results/serial_path.txt",grid.getData(),path,startX,startY,goalX,goalY);
+        exportGridWithPathSVG("results/serial_path.svg",grid.getData(),path,startX,startY,goalX,goalY);
+    }
     return 0;
 }

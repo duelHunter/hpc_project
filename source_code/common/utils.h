@@ -72,4 +72,68 @@ inline void exportGridWithPath(const std::string& filename,
     std::cout << "Grid exported to: " << filename << std::endl;
 }
 
+// Export grid with path as SVG image
+inline void exportGridWithPathSVG(const std::string& filename,
+                                  const std::vector<std::vector<int>>& grid,
+                                  const std::vector<std::pair<int,int>>& path,
+                                  int sx, int sy, int gx, int gy) {
+    std::ofstream file(filename);
+    if (!file.is_open()) { std::cerr << "Cannot open: " << filename << std::endl; return; }
+    
+    int H = grid.size(), W = grid[0].size();
+    const int CELL_SIZE = 10;
+    int svg_width = W * CELL_SIZE + 2;
+    int svg_height = H * CELL_SIZE + 2;
+    
+    // Mark path cells for fast lookup
+    std::vector<std::vector<bool>> inPath(H, std::vector<bool>(W, false));
+    for (auto& p : path)
+        if (p.first >= 0 && p.first < H && p.second >= 0 && p.second < W)
+            inPath[p.first][p.second] = true;
+    
+    file << "<svg width=\"" << svg_width << "\" height=\"" << svg_height 
+         << "\" xmlns=\"http://www.w3.org/2000/svg\">\n";
+    file << "  <rect width=\"" << svg_width << "\" height=\"" << svg_height << "\" fill=\"white\"/>\n";
+    file << "  <g>\n";
+    
+    // Draw grid cells
+    for (int i = 0; i < H; ++i) {
+        for (int j = 0; j < W; ++j) {
+            int x = j * CELL_SIZE + 1;
+            int y = i * CELL_SIZE + 1;
+            
+            if (i == sx && j == sy) {  // Start
+                file << "    <rect x=\"" << x << "\" y=\"" << y << "\" width=\"" 
+                     << (CELL_SIZE-1) << "\" height=\"" << (CELL_SIZE-1) 
+                     << "\" fill=\"yellow\" stroke=\"gray\" stroke-width=\"0.5\"/>\n";
+                file << "    <text x=\"" << (x + CELL_SIZE/2) << "\" y=\"" << (y + CELL_SIZE/2 + 2)
+                     << "\" text-anchor=\"middle\" font-size=\"7\" fill=\"black\" font-weight=\"bold\">S</text>\n";
+            } else if (i == gx && j == gy) {  // Goal
+                file << "    <rect x=\"" << x << "\" y=\"" << y << "\" width=\"" 
+                     << (CELL_SIZE-1) << "\" height=\"" << (CELL_SIZE-1) 
+                     << "\" fill=\"cyan\" stroke=\"gray\" stroke-width=\"0.5\"/>\n";
+                file << "    <text x=\"" << (x + CELL_SIZE/2) << "\" y=\"" << (y + CELL_SIZE/2 + 2)
+                     << "\" text-anchor=\"middle\" font-size=\"7\" fill=\"black\" font-weight=\"bold\">G</text>\n";
+            } else if (grid[i][j] == 1) {  // Obstacle
+                file << "    <rect x=\"" << x << "\" y=\"" << y << "\" width=\"" 
+                     << (CELL_SIZE-1) << "\" height=\"" << (CELL_SIZE-1) 
+                     << "\" fill=\"red\" stroke=\"gray\" stroke-width=\"0.5\"/>\n";
+            } else if (inPath[i][j]) {  // Path
+                file << "    <rect x=\"" << x << "\" y=\"" << y << "\" width=\"" 
+                     << (CELL_SIZE-1) << "\" height=\"" << (CELL_SIZE-1) 
+                     << "\" fill=\"lime\" stroke=\"gray\" stroke-width=\"0.5\"/>\n";
+            } else {  // Free cell
+                file << "    <rect x=\"" << x << "\" y=\"" << y << "\" width=\"" 
+                     << (CELL_SIZE-1) << "\" height=\"" << (CELL_SIZE-1) 
+                     << "\" fill=\"white\" stroke=\"lightgray\" stroke-width=\"0.5\"/>\n";
+            }
+        }
+    }
+    
+    file << "  </g>\n";
+    file << "</svg>\n";
+    
+    std::cout << "SVG grid exported to: " << filename << std::endl;
+}
+
 #endif

@@ -29,7 +29,9 @@ bool Grid::isValid(int x, int y) const {
 }
 
 bool Grid::isObstacle(int x, int y) const {
+    // Treat out-of-bounds as obstacles
     if (x < 0 || x >= height || y < 0 || y >= width) return true;
+    // Return true if cell is an obstacle
     return data[x][y] == 1;
 }
 
