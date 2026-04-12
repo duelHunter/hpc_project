@@ -1,191 +1,260 @@
-
-#include <iostream>
-#include <vector>
-#include <queue>
-#include <algorithm>
-#include <climits>
-#include <atomic>
-#include <omp.h>
-#include "../common/grid.h"
-#include "../common/utils.h"
+#include <iostream>     // for input/output
+#include <vector>       // for dynamic arrays
+#include <queue>        // for priority queue
+#include <tuple>        // for storing multiple values together
+#include <algorithm>    // for reverse()
+#include <climits>      // for INT_MAX
+#include <omp.h>        // OpenMP library for parallel programming
+#include "../common/grid.h"   // custom grid class
+#include "../common/utils.h"  // timer, printing, saving results
 
 using namespace std;
 
-/*
- * Parallel A* using OpenMP - same algorithm as serial A*
- *
- * The serial A* pops one node per iteration. This version batches
- * all nodes sharing the minimum f-value and expands them in parallel.
- *
- * Steps per iteration:
- *   1. [Serial]   Extract all nodes with f == f_min from openList into batch
- *   2. [Parallel] Each thread expands its slice of batch, writing neighbors
- *                 into thread-local buffers (no lock on openList)
- *   3. [Serial]   Merge thread-local buffers into openList
- *
- * Data structures identical to serial A*:
- *   - priority_queue openList ordered by f = g + h
- *   - gScore[] - best known g-cost (atomic<int> for safe parallel writes)
- *   - parent[] - for path reconstruction
- *   - closed[] - atomic<bool>, prevents re-expanding a settled node
- */
-
-static inline bool atomicMin(atomic<int>& target, int value) {
-    int old = target.load(memory_order_relaxed);
-    while (value < old)
-        if (target.compare_exchange_weak(old, value, memory_order_relaxed))
-            return true;
-    return false;
-}
-
+// Class for OpenMP-based parallel A* pathfinding
 class AStarOpenMP {
-    Grid& grid;
-    int sx, sy, gx, gy, H, W, T;
-    inline int h(int x, int y) const { return abs(x-gx)+abs(y-gy); }
+    Grid& grid;         // reference to the grid
+    int sx, sy;         // start position (x, y)
+    int gx, gy;         // goal position (x, y)
+    int H, W;           // grid height and width
+    int numThreads;     // number of OpenMP threads to use
+
+    // Heuristic function: Manhattan distance
+    // Estimates distance from current node to goal
+    inline int h(int x, int y) const { 
+        return abs(x - gx) + abs(y - gy); 
+    }
+
 public:
+    // Constructor: initialize all required values
     AStarOpenMP(Grid& g, int sx, int sy, int gx, int gy, int threads)
         : grid(g), sx(sx), sy(sy), gx(gx), gy(gy),
-          H(g.getHeight()), W(g.getWidth()), T(threads) {}
+          H(g.getHeight()), W(g.getWidth()), numThreads(threads) {}
 
+    // Main function that finds the path
     vector<pair<int,int>> findPath() {
-        const int N = H * W;
+        // gScore stores shortest known distance from start to each node
+        vector<int> gScore(H * W, INT_MAX);
 
-        vector<atomic<int>>  gScore(N);
-        for (auto& g : gScore) g.store(INT_MAX, memory_order_relaxed);
+        // parent stores previous node for path reconstruction
+        vector<int> parent(H * W, -1);
 
-        vector<int>          parent(N, -1);
+        // closed marks whether a node is already fully processed
+        vector<bool> closed(H * W, false);
 
-        vector<atomic<bool>> closed(N);
-        for (auto& c : closed) c.store(false, memory_order_relaxed);
+        // Priority queue for open list
+        // Stores pair (f_cost, node_index)
+        using PQ = pair<int,int>;
+        priority_queue<PQ, vector<PQ>, greater<PQ>> openList;
 
-        using Entry = pair<int,int>;
-        priority_queue<Entry, vector<Entry>, greater<Entry>> openList;
+        // Convert start cell (sx, sy) into 1D index
+        int startIdx = sx * W + sy;
 
-        int startIdx = sx*W + sy;
-        int goalIdx  = gx*W + gy;
-        gScore[startIdx].store(0, memory_order_relaxed);
+        // Start node cost is 0
+        gScore[startIdx] = 0;
+
+        // -2 means special marker for start node
         parent[startIdx] = -2;
-        openList.push({h(sx,sy), startIdx});
 
-        struct Discovery { int f, nIdx, parIdx, ng; };
-        vector<vector<Discovery>> localBuf(T);
-        for (auto& v : localBuf) v.reserve(256);
+        // Push start node into open list with heuristic cost
+        openList.push({h(sx, sy), startIdx});
 
-        vector<int> batch;
-        batch.reserve(1024);
+        // Batch size = number of nodes taken together for parallel expansion
+        // More threads -> bigger batch
+        const int BATCH = numThreads * 4;
 
-        int expanded = 0;
-        bool found   = false;
+        int expanded = 0;            // count how many nodes were expanded
+        bool found = false;          // becomes true when goal is reached
+        int goalIdx = gx * W + gy;   // 1D index of goal node
 
+        // Main loop: continue until openList is empty or goal found
         while (!openList.empty() && !found) {
 
-            // Step 1: collect all nodes at minimum f [SERIAL]
-            batch.clear();
-            int minF = openList.top().first;
-            while (!openList.empty() && openList.top().first == minF) {
-                auto [f, idx] = openList.top(); openList.pop();
-                bool alreadyClosed = false;
-                if (closed[idx].compare_exchange_strong(alreadyClosed, true,
-                        memory_order_acq_rel, memory_order_relaxed)) {
-                    batch.push_back(idx);
-                    ++expanded;
-                    if (idx == goalIdx) { found = true; break; }
+            // -----------------------------
+            // Step 1: Collect a batch of best nodes
+            // -----------------------------
+            vector<int> batch;
+            batch.reserve(BATCH);
+
+            while (!openList.empty() && (int)batch.size() < BATCH) {
+                auto [f, idx] = openList.top(); 
+                openList.pop();
+
+                // Skip if already closed
+                if (closed[idx]) continue;
+
+                // Mark node as processed
+                closed[idx] = true;
+                ++expanded;
+
+                // Add node to batch
+                batch.push_back(idx);
+
+                // If goal found, stop
+                if (idx == goalIdx) { 
+                    found = true; 
+                    break; 
                 }
             }
+
             if (found) break;
-            if (batch.empty()) continue;
 
-            // Step 2: expand batch in parallel [PARALLEL]
-            #pragma omp parallel num_threads(T)
+            // -----------------------------
+            // Step 2: Expand batch in parallel
+            // -----------------------------
+            #pragma omp parallel num_threads(numThreads)
             {
-                int tid = omp_get_thread_num();
-                auto& myBuf = localBuf[tid];
+                // Each thread stores generated neighbours locally first
+                // tuple = (f_cost, neighbour_index, new_g, parent_index)
+                vector<tuple<int,int,int,int>> localGen;
+                localGen.reserve(BATCH * 4);
 
-                #pragma omp for schedule(static)
-                for (int bi = 0; bi < (int)batch.size(); ++bi) {
-                    int idx = batch[bi];
-                    int cx  = idx / W, cy = idx % W;
-                    int cg  = gScore[idx].load(memory_order_relaxed);
+                // Divide batch nodes among threads dynamically
+                #pragma omp for schedule(dynamic,1)
+                for (int b = 0; b < (int)batch.size(); ++b) {
+                    int idx = batch[b];
 
+                    // Convert 1D index back to 2D coordinates
+                    int cx = idx / W;
+                    int cy = idx % W;
+
+                    // Current path cost
+                    int cg = gScore[idx];
+
+                    // Check all possible movement directions
                     for (int i = 0; i < NUM_DIRECTIONS; ++i) {
-                        int nx = cx+DX[i], ny = cy+DY[i];
-                        if (!grid.isValid(nx, ny)) continue;
-                        int nIdx = nx*W + ny;
-                        if (closed[nIdx].load(memory_order_relaxed)) continue;
+                        int nx = cx + DX[i];
+                        int ny = cy + DY[i];
 
+                        // Skip invalid or blocked cells
+                        if (!grid.isValid(nx, ny)) continue;
+
+                        int nIdx = nx * W + ny;
+
+                        // Skip if already processed
+                        if (closed[nIdx]) continue;
+
+                        // New cost from start to neighbour
                         int ng = cg + 1;
-                        if (atomicMin(gScore[nIdx], ng)) {
-                            parent[nIdx] = idx;
-                            int nf = ng + h(nx, ny);
-                            myBuf.push_back({nf, nIdx, idx, ng});
+
+                        // Optimistic check before entering critical section
+                        if (ng < gScore[nIdx]) {
+                            // Store candidate neighbour in local buffer
+                            localGen.emplace_back(ng + h(nx, ny), nIdx, ng, idx);
                         }
                     }
                 }
-            }
 
-            // Step 3: merge discoveries into openList [SERIAL]
-            for (auto& buf : localBuf) {
-                for (auto& [f, nIdx, parIdx, ng] : buf) {
-                    if (gScore[nIdx].load(memory_order_relaxed) == ng)
-                        openList.push({f, nIdx});
+                // -----------------------------
+                // Step 3: Merge local results safely
+                // -----------------------------
+                #pragma omp critical
+                {
+                    for (auto& [f, nIdx, ng, pIdx] : localGen) {
+                        // Recheck before updating shared data
+                        if (!closed[nIdx] && ng < gScore[nIdx]) {
+                            gScore[nIdx] = ng;      // update best cost
+                            parent[nIdx] = pIdx;    // store parent
+                            openList.push({f, nIdx}); // push into priority queue
+                        }
+                    }
                 }
-                buf.clear();
-            }
+            } // end parallel section
         }
 
         cout << "Nodes expanded: " << expanded << endl;
 
+        // -----------------------------
+        // Step 4: Reconstruct the path
+        // -----------------------------
         vector<pair<int,int>> path;
+
         if (found) {
             int idx = goalIdx;
-            while (idx != -2) { path.push_back({idx/W, idx%W}); idx = parent[idx]; }
+
+            // Follow parent links from goal back to start
+            while (idx != -2) {
+                path.push_back({idx / W, idx % W});
+                idx = parent[idx];
+            }
+
+            // Reverse to get path from start to goal
             reverse(path.begin(), path.end());
         }
+
         return path;
     }
 };
 
 int main(int argc, char* argv[]) {
-    int W=1000, H=1000;
-    double density=0.3;
-    unsigned int seed=42;
-    int numThreads=omp_get_max_threads();
+    // Default values
+    int W = 1000, H = 1000;         // grid size
+    double density = 0.3;           // obstacle density
+    unsigned int seed = 42;         // random seed
+    int numThreads = omp_get_max_threads(); // default = max available threads
 
-    if(argc>=3){W=atoi(argv[1]); H=atoi(argv[2]);}
-    if(argc>=4) density=atof(argv[3]);
-    if(argc>=5) seed=atoi(argv[4]);
-    if(argc>=6) numThreads=atoi(argv[5]);
+    // Read command-line arguments if provided
+    if (argc >= 3) { 
+        W = atoi(argv[1]); 
+        H = atoi(argv[2]); 
+    }
+    if (argc >= 4) density = atof(argv[3]);
+    if (argc >= 5) seed = atoi(argv[4]);
+    if (argc >= 6) numThreads = atoi(argv[5]);
+
+    // Set number of OpenMP threads
     omp_set_num_threads(numThreads);
 
-    cout<<"========================================"<<endl;
-    cout<<"OpenMP Parallel A*"<<endl;
-    cout<<"Grid size: "<<W<<"x"<<H<<endl;
-    cout<<"Obstacle density: "<<(density*100)<<"%"<<endl;
-    cout<<"Threads: "<<numThreads<<endl;
-    cout<<"========================================"<<endl;
+    // Print configuration
+    cout << "========================================" << endl;
+    cout << "OpenMP Parallel A* Pathfinding" << endl;
+    cout << "Grid size: " << W << "x" << H << endl;
+    cout << "Obstacle density: " << (density * 100) << "%" << endl;
+    cout << "Threads: " << numThreads << endl;
+    cout << "========================================" << endl;
 
-    Grid grid(W,H);
-    grid.generateObstacles(density,seed);
-    int startX=0,startY=0,goalX=H-1,goalY=W-1;
-    grid.clearCell(startX,startY);
-    grid.clearCell(goalX,goalY);
-    cout<<"Start: ("<<startX<<","<<startY<<") | Goal: ("<<goalX<<","<<goalY<<")"<<endl;
+    // Create grid and generate random obstacles
+    Grid grid(W, H);
+    grid.generateObstacles(density, seed);
 
-    AStarOpenMP astar(grid,startX,startY,goalX,goalY,numThreads);
-    Timer timer; timer.start();
+    // Define start and goal positions
+    int startX = 0, startY = 0;
+    int goalX = H - 1, goalY = W - 1;
+
+    // Ensure start and goal cells are free
+    grid.clearCell(startX, startY);
+    grid.clearCell(goalX, goalY);
+
+    cout << "Start: (" << startX << "," << startY << ") | Goal: (" 
+         << goalX << "," << goalY << ")" << endl;
+
+    // Create A* OpenMP object
+    AStarOpenMP astar(grid, startX, startY, goalX, goalY, numThreads);
+
+    // Start timer
+    Timer timer; 
+    timer.start();
+
+    // Run pathfinding
     auto path = astar.findPath();
+
+    // Stop timer
     double t = timer.stop();
 
-    cout<<"========================================"<<endl;
-    if(path.empty()) cout<<"No path found!"<<endl;
-    else {
-        cout<<"Path found! Length: "<<path.size()<<" steps"<<endl;
-        printPath(path);
-    }
-    cout<<"Execution time: "<<t<<" ms"<<endl;
-    cout<<"Threads used:   "<<numThreads<<endl;
-    cout<<"========================================"<<endl;
+    cout << "========================================" << endl;
 
-    saveResults("results/performance_logs.txt","openmp",W,H,numThreads,1,t,path.size());
+    if (path.empty()) 
+        cout << "No path found!" << endl;
+    else {
+        cout << "Path found! Length: " << path.size() << " steps" << endl;
+        printPath(path);   // print resulting path
+    }
+
+    cout << "Execution time: " << t << " ms" << endl;
+    cout << "Threads used: " << numThreads << endl;
+    cout << "========================================" << endl;
+
+    // Save performance data to file
+    saveResults("../results/performance_logs.txt", "openmp", W, H, numThreads, 1, t, path.size());
+
     return 0;
 }
