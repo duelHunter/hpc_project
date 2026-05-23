@@ -21,6 +21,7 @@ struct JumpResult {
 
 class JPSOpenMP {
     Grid& grid;
+    vector<uint8_t> flatGrid;
     int sx, sy, gx, gy, H, W, T;
     
     // Diagonal distance (Chebyshev)
@@ -28,32 +29,23 @@ class JPSOpenMP {
         return max(abs(x - gx), abs(y - gy)); 
     }
 
-    inline bool isValid(int x, int y) const {
-        return grid.isValid(x, y);
-    }
-    
-    
     inline bool rawValid(int x, int y) const {
-        return grid.isValid(x, y);
+        return (unsigned)x < (unsigned)H && (unsigned)y < (unsigned)W && flatGrid[x * W + y] == 0;
     }
     
     // Optimized Iterative Jump logic completely unrolled
     int jump(int x, int y, int dx, int dy) const {
         int nx = x, ny = y;
-        
         while (true) {
             nx += dx;
             ny += dy;
-            
             if (!rawValid(nx, ny)) return -1;
             if (nx == gx && ny == gy) return nx * W + ny;
-            
             if (dx != 0 && dy != 0) { // Diagonal movement
                 if ((rawValid(nx - dx, ny + dy) && !rawValid(nx - dx, ny)) || 
                     (rawValid(nx + dx, ny - dy) && !rawValid(nx, ny - dy))) {
                     return nx * W + ny;
                 }
-                
                 if (jumpSearchOrthogonal(nx, ny, dx, 0) || jumpSearchOrthogonal(nx, ny, 0, dy)) {
                     return nx * W + ny;
                 }
@@ -89,7 +81,15 @@ class JPSOpenMP {
 
 public:
     JPSOpenMP(Grid& g, int sx, int sy, int gx, int gy, int threads)
-        : grid(g), sx(sx), sy(sy), gx(gx), gy(gy), H(g.getHeight()), W(g.getWidth()), T(threads) {}
+        : grid(g), sx(sx), sy(sy), gx(gx), gy(gy), H(g.getHeight()), W(g.getWidth()), T(threads) {
+        // Flatten the multi-dimensional grid to guarantee optimal L1 Cache fetching when threaded
+        flatGrid.assign(H * W, 0);
+        for(int x=0; x<H; ++x) {
+            for(int y=0; y<W; ++y) {
+                flatGrid[x * W + y] = grid.getCell(x, y);
+            }
+        }
+    }
 
     vector<pair<int, int>> findPath() {
         vector<int> gScore(H * W, INT_MAX);
@@ -114,7 +114,7 @@ public:
         #pragma omp parallel num_threads(T)
         {
             vector<JumpResult> localGen;
-            localGen.reserve(1024); // Thread-local buffer survives the entire search
+            localGen.reserve(128); // Thread-local buffer survives the entire search
             
             while (true) {
                 #pragma omp single
@@ -122,9 +122,10 @@ public:
                     batch.clear();
                     if (!openList.empty() && !found) {
                         int min_f = openList.top().first;
-                        int batchLimit = max(256, T * 32); // larger batch limit
+                        int batchLimit = max(128, T * 8); 
                         
-                        while (!openList.empty() && batch.size() < (size_t)batchLimit && (openList.top().first <= min_f + 5)) {
+                        while (!openList.empty() && batch.size() < (size_t)batchLimit) {
+                            if (batch.size() >= (size_t)T && openList.top().first > min_f + 1) break;
                             auto [f, idx] = openList.top();
                             openList.pop();
 
@@ -146,7 +147,7 @@ public:
 
                 localGen.clear();
                 
-                #pragma omp for schedule(static) nowait
+                #pragma omp for schedule(dynamic, 1) nowait
                 for (int b = 0; b < (int)batch.size(); ++b) {
                     int idx = batch[b];
                     int cx = idx / W, cy = idx % W;
@@ -219,7 +220,8 @@ public:
 
 int main(int argc, char* argv[]) {
     int W=1000, H=1000; double density=0.3; unsigned int seed=42;
-    int numThreads = omp_get_max_threads();
+    // Cap max threads to 4 to prevent priority-queue lock contention which causes overhead on 8+ core machines
+    int numThreads = min(4, omp_get_max_threads());
     
     if(argc>=3){W=atoi(argv[1]); H=atoi(argv[2]);}
     if(argc>=4) density=atof(argv[3]);
@@ -251,7 +253,6 @@ int main(int argc, char* argv[]) {
     if(path.empty()) cout<<"No path found!"<<endl;
     else{
         cout<<"Path found! Length: "<<path.size()<<" steps"<<endl;
-        printPath(path);
     }
     cout<<"Execution time: "<<t<<" ms"<<endl;
     cout<<"========================================"<<endl;
