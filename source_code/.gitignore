@@ -6,7 +6,6 @@
 serial/astar_serial
 openmp/astar_openmp
 mpi/astar_mpi
-hybrid/astar_hybrid
 
 # Results/output files
 results/performance_logs.txt
@@ -21,6 +20,3 @@ results/*.txt
 # OS files
 .DS_Store
 Thumbs.db
-
-
-../sample_report.pdf
