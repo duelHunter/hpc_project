@@ -17,7 +17,7 @@ public:
     AStarSerial(Grid& g,int sx,int sy,int gx,int gy)
         :grid(g),sx(sx),sy(sy),gx(gx),gy(gy),H(g.getHeight()),W(g.getWidth()){}
 
-    //////////////////////// Main A* pathfinding function
+    ////////////////////////Main A* pathfinding function
     vector<pair<int,int>> findPath(){
         vector<int> gScore(H*W, INT_MAX);
         vector<int> parent(H*W, -1);
