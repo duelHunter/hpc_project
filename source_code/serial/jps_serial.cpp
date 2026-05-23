@@ -150,7 +150,7 @@ public:
         return path;
     }
 };
-
+//test
 int main(int argc, char* argv[]) {
     int W=1000, H=1000; double density=0.3; unsigned int seed=42;
     if(argc>=3){W=atoi(argv[1]); H=atoi(argv[2]);}
