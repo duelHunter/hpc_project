@@ -21,3 +21,6 @@ results/*.txt
 # OS files
 .DS_Store
 Thumbs.db
+
+
+../sample_report.pdf
