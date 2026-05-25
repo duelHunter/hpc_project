@@ -7,10 +7,6 @@ serial/astar_serial
 openmp/astar_openmp
 mpi/astar_mpi
 
-# Results/output files
-results/performance_logs.txt
-results/serial_path.txt
-results/*.txt
 
 # Editor/IDE files
 .vscode/
